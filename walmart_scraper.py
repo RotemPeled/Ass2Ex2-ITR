@@ -29,7 +29,7 @@ def search_walmart():
     price_main = soup.select_one('.f2')
     price_decimal = soup.select_one('.f6.f5-l[style="vertical-align:0.75ex"]')
     if price_main and price_decimal:
-        price = f"${price_main.text.strip()},{price_decimal.text.strip()}"
+        price = f"${price_main.text.strip()}.{price_decimal.text.strip()}"
     else:
         price = "Price not found"
     
