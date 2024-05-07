@@ -11,7 +11,7 @@ def search_walmart():
     
     # Check if any results were found
     no_results = soup.select_one('.search-no-results')
-    if no_results or not soup.select_one('.f4.f3-m.lh-title.ma0.di'):
+    if no_results:
         return {
             'Site': 'Walmart.com',
             'Item title name': 'Product title not found',
@@ -19,15 +19,15 @@ def search_walmart():
         }
     
     # CSS selector for the search results header
-    product_title = soup.select_one('.f4.f3-m.lh-title.ma0.di')
+    product_title = soup.select_one('span[data-automation-id="product-title"]')
     if product_title:
-        product_title = product_title.text.split('(')[0].strip()  # Splits and removes the count of results
+        product_title = product_title.text.strip()  # Get the full title text
     else:
         product_title = "Product title not found"
     
     # CSS selectors for price
-    price_main = soup.select_one('.f2')
-    price_decimal = soup.select_one('.f6.f5-l[style="vertical-align:0.75ex"]')
+    price_main = soup.select_one('div[aria-hidden="true"] span.f2')
+    price_decimal = soup.select_one('div[aria-hidden="true"] span.f6.f5-l[style="vertical-align:0.75ex"]')
     if price_main and price_decimal:
         price = f"${price_main.text.strip()}.{price_decimal.text.strip()}"
     else:
