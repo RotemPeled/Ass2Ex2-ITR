@@ -7,15 +7,24 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import re
-import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 app = FastAPI()
 
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
 def setup_driver():
     options = Options()
-    options.headless = True  # Set to False to observe the behavior, True for production
+    options.headless = True
     driver = webdriver.Chrome(options=options)
     return driver
 
@@ -36,52 +45,61 @@ def search_bestbuy_selenium(driver, product_name):
         search_box.send_keys(Keys.ENTER)
 
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'h4.sku-title'))
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'li.sku-item'))
         )
-        product_title = driver.find_element(By.CSS_SELECTOR, 'h4.sku-title').text
-        price_element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'div.priceView-hero-price.priceView-customer-price'))
-        )
+        product_element = driver.find_element(By.CSS_SELECTOR, 'li.sku-item')
+        product_title = product_element.find_element(By.CSS_SELECTOR, 'h4.sku-title').text
+        product_url = product_element.find_element(By.CSS_SELECTOR, 'a.image-link').get_attribute('href')
+        price_element = product_element.find_element(By.CSS_SELECTOR, 'div.priceView-hero-price.priceView-customer-price')
         price = price_element.text
         match = re.search(r'\$\d+\.\d+', price)
         if match:
             price = match.group()
-        return {'Site': 'BestBuy.com', 'Item title name': product_title, 'Price(USD)': price}
+        return {'Site': 'BestBuy.com', 'Item title name': product_title, 'Price(USD)': price, 'Link': product_url}
     except Exception as e:
         print(f"Error while extracting data: {e}")
         return None
 
 def scrape_newegg(product_name):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+    headers = {'User-Agent': 'Mozilla/5.0'}
     search_url = f"https://www.newegg.com/p/pl?d={product_name}"
     response = requests.get(search_url, headers=headers)
     soup = BeautifulSoup(response.text, 'html.parser')
     
-    product_element = soup.select_one('.item-title')
+    product_element = soup.select_one('.item-cell')  # Ensure we get the right container element
     if product_element:
-        product_title = product_element.text
-        price_element = soup.select_one('.price-current')
-        price = price_element.text.split()[0] if price_element else 'Price not found'
-        return {'Site': 'Newegg.com', 'Item title name': product_title, 'Price(USD)': price}
+        title_element = product_element.select_one('.item-title')
+        product_title = title_element.text if title_element else "Title not found"
+        product_url = title_element['href'] if title_element else None  # Ensure URL is retrieved directly from the title element
+
+        price_element = product_element.select_one('.price-current')
+        price = price_element.text.strip().split()[0] if price_element else 'Price not found'
+        return {'Site': 'Newegg.com', 'Item title name': product_title, 'Price(USD)': price, 'Link': product_url}
     return None
 
 def search_walmart(product_name):
-    url = "https://www.walmart.com/search/?query=" + product_name
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+    url = f"https://www.walmart.com/search/?query={product_name}"
+    headers = {'User-Agent': 'Mozilla/5.0'}
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.content, 'html.parser')
     
-    product_title = soup.select_one('span[data-automation-id="product-title"]').text.strip() if soup.select_one('span[data-automation-id="product-title"]') else "Product title not found"
-    price_main = soup.select_one('div[aria-hidden="true"] span.f2')
-    price_decimal = soup.select_one('div[aria-hidden="true"] span.f6.f5-l[style="vertical-align:0.75ex"]')
-    price = f"${price_main.text.strip()}.{price_decimal.text.strip()}" if price_main and price_decimal else "Price not found"
-    
-    return {'Site': 'Walmart.com', 'Item title name': product_title, 'Price(USD)': price}
+    product_element = soup.select_one('.search-result-listview-item')  # Updated to correct class for the entire product container
+    if product_element:
+        title_element = product_element.select_one('a[data-automation-id="product-title-link"]')
+        product_title = title_element.text.strip() if title_element else "Title not found"
+        product_url = "https://www.walmart.com" + title_element['href'] if title_element and title_element.get('href', '').startswith('/') else None
+
+        price_element = product_element.select_one('.price-characteristic')  # More specific selector for price
+        price_decimal = product_element.select_one('.price-mantissa')
+        price = f"${price_element.text}.{price_decimal.text}" if price_element and price_decimal else "Price not found"
+        
+        return {'Site': 'Walmart.com', 'Item title name': product_title, 'Price(USD)': price, 'Link': product_url}
+    return None
+
 
 @app.get("/search/{product_name}")
 async def search(product_name: str):
     driver = setup_driver()
-
     try:
         bestbuy_data = search_bestbuy_selenium(driver, product_name)
         newegg_data = scrape_newegg(product_name)
