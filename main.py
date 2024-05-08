@@ -83,18 +83,20 @@ def search_walmart(product_name):
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.content, 'html.parser')
     
-    product_element = soup.select_one('.search-result-listview-item')  # Updated to correct class for the entire product container
-    if product_element:
-        title_element = product_element.select_one('a[data-automation-id="product-title-link"]')
-        product_title = title_element.text.strip() if title_element else "Title not found"
-        product_url = "https://www.walmart.com" + title_element['href'] if title_element and title_element.get('href', '').startswith('/') else None
+    product_title_element = soup.select_one('span[data-automation-id="product-title"]')
+    if product_title_element:
+        product_title = product_title_element.text.strip()
+        link_element = soup.select_one('a[data-automation-id="product-title-link"]')
+        product_url = "https://www.walmart.com" + link_element.get('href') if link_element else None
 
-        price_element = product_element.select_one('.price-characteristic')  # More specific selector for price
-        price_decimal = product_element.select_one('.price-mantissa')
-        price = f"${price_element.text}.{price_decimal.text}" if price_element and price_decimal else "Price not found"
+        price_main = soup.select_one('div[aria-hidden="true"] span.f2')
+        price_decimal = soup.select_one('div[aria-hidden="true"] span.f6.f5-l[style="vertical-align:0.75ex"]')
+        price = f"${price_main.text.strip()}.{price_decimal.text.strip()}" if price_main and price_decimal else "Price not found"
         
         return {'Site': 'Walmart.com', 'Item title name': product_title, 'Price(USD)': price, 'Link': product_url}
     return None
+
+
 
 
 @app.get("/search/{product_name}")
