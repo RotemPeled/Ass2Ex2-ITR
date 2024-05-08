@@ -77,26 +77,32 @@ def scrape_newegg(product_name):
         return {'Site': 'Newegg.com', 'Item title name': product_title, 'Price(USD)': price, 'Link': product_url}
     return None
 
+
 def search_walmart(product_name):
     url = f"https://www.walmart.com/search/?query={product_name}"
     headers = {'User-Agent': 'Mozilla/5.0'}
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.content, 'html.parser')
     
-    product_title_element = soup.select_one('span[data-automation-id="product-title"]')
-    if product_title_element:
-        product_title = product_title_element.text.strip()
-        link_element = soup.select_one('a[data-automation-id="product-title-link"]')
-        product_url = "https://www.walmart.com" + link_element.get('href') if link_element else None
-
-        price_main = soup.select_one('div[aria-hidden="true"] span.f2')
-        price_decimal = soup.select_one('div[aria-hidden="true"] span.f6.f5-l[style="vertical-align:0.75ex"]')
-        price = f"${price_main.text.strip()}.{price_decimal.text.strip()}" if price_main and price_decimal else "Price not found"
+    # Using the specific selectors for dollars and cents
+    dollars_selector = '#\\30  > section > div > div:nth-child(1) > div > div > div > div:nth-child(2) > div.flex.flex-wrap.justify-start.items-center.lh-title.mb1 > div.b.black.mr1.lh-copy.f5.f4-l > span.f2'
+    cents_selector = '#\\30  > section > div > div:nth-child(1) > div > div > div > div:nth-child(2) > div.flex.flex-wrap.justify-start.items-center.lh-title.mb1 > div > span:nth-child(4)'
+    
+    link_element = soup.select_one('a[href*="/ip/"]')  # Generalized to find any product link containing "/ip/"
+    title_element = link_element.find_parent('div').select_one('span') if link_element else None  # Assuming title is in a span within the same div as the link
+    
+    dollars_element = soup.select_one(dollars_selector)
+    cents_element = soup.select_one(cents_selector)
+    
+    if link_element and title_element and dollars_element and cents_element:
+        product_url = "https://www.walmart.com" + link_element.get('href', '')
+        product_title = title_element.text.strip()
+        # Combine dollars and cents
+        price = f"${dollars_element.text.strip()}.{cents_element.text.strip()}"
         
         return {'Site': 'Walmart.com', 'Item title name': product_title, 'Price(USD)': price, 'Link': product_url}
-    return None
 
-
+    return {'Site': 'Walmart.com', 'Error': 'Product details not found'}
 
 
 @app.get("/search/{product_name}")
