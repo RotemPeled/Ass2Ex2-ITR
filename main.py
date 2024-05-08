@@ -10,6 +10,8 @@ import re
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from urllib.parse import urlencode, urljoin
+
 
 app = FastAPI()
 
@@ -79,30 +81,50 @@ def scrape_newegg(product_name):
 
 
 def search_walmart(product_name):
-    url = f"https://www.walmart.com/search/?query={product_name}"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.content, 'html.parser')
-    
-    # Using the specific selectors for dollars and cents
-    dollars_selector = '#\\30  > section > div > div:nth-child(1) > div > div > div > div:nth-child(2) > div.flex.flex-wrap.justify-start.items-center.lh-title.mb1 > div.b.black.mr1.lh-copy.f5.f4-l > span.f2'
-    cents_selector = '#\\30  > section > div > div:nth-child(1) > div > div > div > div:nth-child(2) > div.flex.flex-wrap.justify-start.items-center.lh-title.mb1 > div > span:nth-child(4)'
-    
-    link_element = soup.select_one('a[href*="/ip/"]')  # Generalized to find any product link containing "/ip/"
-    title_element = link_element.find_parent('div').select_one('span') if link_element else None  # Assuming title is in a span within the same div as the link
-    
-    dollars_element = soup.select_one(dollars_selector)
-    cents_element = soup.select_one(cents_selector)
-    
-    if link_element and title_element and dollars_element and cents_element:
-        product_url = "https://www.walmart.com" + link_element.get('href', '')
-        product_title = title_element.text.strip()
-        # Combine dollars and cents
-        price = f"${dollars_element.text.strip()}.{cents_element.text.strip()}"
-        
-        return {'Site': 'Walmart.com', 'Item title name': product_title, 'Price(USD)': price, 'Link': product_url}
+    search_url = 'https://www.walmart.com/search?' + urlencode({'query': product_name})
+    headers = {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Referer': 'https://www.walmart.com/',
+    }
 
-    return {'Site': 'Walmart.com', 'Error': 'Product details not found'}
+    response = requests.get(search_url, headers=headers)
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    # Using a more general and robust selector to find the first product link
+    link_element = soup.select_one('a[href*="/ip/"]')
+    if not link_element:
+        return {'Site': 'Walmart.com', 'Error': 'No product link found'}
+
+    product_url = urljoin('https://www.walmart.com', link_element['href'])
+
+    # Fetch the product page for accurate pricing
+    response = requests.get(product_url, headers=headers)
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    # Simplify the price retrieval by using itemprop or a common class for price
+    price_element = soup.select_one('[itemprop="price"], .price-group, .prod-PriceHero')
+    if price_element:
+        # Clean up any text within the price, such as "Now"
+        price_text = price_element.get_text(strip=True)
+        # Filter out non-numeric characters but keep the decimal point and numbers
+        cleaned_price = ''.join([ch for ch in price_text if ch.isdigit() or ch == '.'])
+
+        # Insert a decimal point before the last two digits if no decimal point exists
+        if '.' not in cleaned_price:
+            cleaned_price = cleaned_price[:-2] + '.' + cleaned_price[-2:] if len(cleaned_price) > 2 else "0." + cleaned_price
+
+        price = f"${cleaned_price}"
+    else:
+        price = "Price not found"
+
+    product_title = link_element.get_text(strip=True) if link_element else "Title not found"
+
+    return {'Site': 'Walmart.com', 'Item title name': product_title, 'Price(USD)': price, 'Link': product_url}
+
+
+
 
 
 @app.get("/search/{product_name}")
